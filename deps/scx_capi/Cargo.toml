@@ -8,8 +8,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-# ponytail: local path dep for iteration; pin a git rev (as r/picklerick does) before anyone else builds this.
-scx-core = { path = "../../../scx/crates/scx-core" }
+scx-core = "0.4.1"
 futures = "0.3"
 
 [profile.release]
