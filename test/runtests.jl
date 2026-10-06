@@ -83,5 +83,6 @@ include("test_singlepass.jl")
 include("test_singlepass2.jl")
 include("test_sparse_rsvd.jl")
 include("test_exact_ooc_pca.jl")
+include("test_scx.jl")
 
 println("All tests completed.")

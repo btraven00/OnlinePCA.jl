@@ -1,0 +1,16 @@
+[package]
+name = "scx_capi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# ponytail: local path dep for iteration; pin a git rev (as r/picklerick does) before anyone else builds this.
+scx-core = { path = "../../../scx/crates/scx-core" }
+futures = "0.3"
+
+[profile.release]
+lto = "thin"
