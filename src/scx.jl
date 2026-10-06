@@ -2,7 +2,7 @@
 # via the scx_capi cdylib in deps/scx_capi.
 #
 # Each iteration yields `(cells, X)`: `cells` is the range of cell indices in
-# the chunk and `X` is a genes × cells `SparseMatrixCSC{Float32,Int64}`, i.e.
+# the chunk and `X` is a genes × cells `SparseMatrixCSC{Float32,Int32}`, i.e.
 # the same orientation OnlinePCA uses (rows = genes, columns = cells).
 
 # ponytail: local build path; swap for a JLL product once this is registered.
@@ -48,7 +48,7 @@ function scxopen(path, chunksize)
 end
 
 Base.IteratorSize(::Type{ScxChunks}) = Base.SizeUnknown()
-Base.eltype(::Type{ScxChunks}) = Tuple{UnitRange{Int},SparseMatrixCSC{Float32,Int64}}
+Base.eltype(::Type{ScxChunks}) = Tuple{UnitRange{Int},SparseMatrixCSC{Float32,Int32}}
 
 function Base.iterate(it::ScxChunks)
     h = scxopen(it.path, it.chunksize)
@@ -67,12 +67,12 @@ function Base.iterate(::ScxChunks, (h, ngenes))
         ccall((:scx_close, libscx), Cvoid, (Ptr{Cvoid},), h)
         rc == 0 ? (return nothing) : scxerror()
     end
-    colptr = Vector{Int64}(undef, nrows[] + 1)
-    rowval = Vector{Int64}(undef, nnz[])
+    colptr = Vector{Int32}(undef, nrows[] + 1)
+    rowval = Vector{Int32}(undef, nnz[])
     nzval = Vector{Float32}(undef, nnz[])
     ccall((:scx_copy, libscx), Cvoid,
-        (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float32}), h, colptr, rowval, nzval)
+        (Ptr{Cvoid}, Ptr{Int32}, Ptr{Int32}, Ptr{Float32}), h, colptr, rowval, nzval)
     cells = (off[] + 1):(off[] + nrows[])
-    X = SparseMatrixCSC(ngenes, Int(nrows[]), colptr, rowval, nzval)
+    X = SparseMatrixCSC{Float32,Int32}(ngenes, Int(nrows[]), colptr, rowval, nzval)
     ((cells, X), (h, ngenes))
 end

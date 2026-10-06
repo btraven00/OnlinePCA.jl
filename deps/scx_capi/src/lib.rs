@@ -2,7 +2,7 @@
 //!
 //! Same shape as picklerick's `open_stream`: a background thread drives the
 //! reader and hands chunks over a bounded channel. Each chunk is copied into
-//! caller-owned buffers (1-based Int64 indices, Float32 values) so Julia can
+//! caller-owned buffers (1-based Int32 indices, Float32 values) so Julia can
 //! wrap it directly as a `SparseMatrixCSC` (CSR cells×genes == CSC genes×cells).
 
 use std::cell::RefCell;
@@ -59,8 +59,10 @@ pub unsafe extern "C" fn scx_open(path: *const c_char, chunk_size: usize) -> *mu
         }
     };
     let (n_obs, n_vars) = reader.shape();
-    // Bounded so the reader stays at most 8 chunks ahead of the consumer.
-    let (tx, rx) = sync_channel(8);
+    // One chunk queued + one being read: enough to overlap reading with the
+    // consumer's compute while keeping memory flat. Depth is in chunks, not
+    // bytes, and an atlas chunk can be ~100 MB, so deeper read-ahead costs.
+    let (tx, rx) = sync_channel(1);
     std::thread::spawn(move || {
         block_on(async move {
             let mut stream = reader.x_stream();
@@ -83,7 +85,8 @@ pub unsafe extern "C" fn scx_shape(h: *const ScxStream, n_obs: *mut usize, n_var
 }
 
 /// Advance to the next chunk. Returns 1 and sets its row offset, row count and
-/// nnz; 0 at end of stream; -1 on error (see `scx_last_error`).
+/// nnz; 0 at end of stream; -1 on error (see `scx_last_error`), including a
+/// chunk too large for Int32 indices.
 ///
 /// # Safety
 /// `h` must come from `scx_open`; out-pointers must be valid.
@@ -101,6 +104,10 @@ pub unsafe extern "C" fn scx_next(
             *row_offset = chunk.row_offset;
             *nrows = chunk.nrows;
             *nnz = chunk.data.indices.len();
+            if *nnz >= i32::MAX as usize {
+                set_error(format!("chunk has {} nonzeros, more than Int32 indices hold; use a smaller chunk size", *nnz));
+                return -1;
+            }
             h.cur = Some(chunk);
             1
         }
@@ -118,17 +125,17 @@ pub unsafe extern "C" fn scx_next(
 /// # Safety
 /// `h` must have a current chunk from `scx_next`; buffers must have the sizes above.
 #[no_mangle]
-pub unsafe extern "C" fn scx_copy(h: *const ScxStream, indptr: *mut i64, indices: *mut i64, data: *mut f32) {
+pub unsafe extern "C" fn scx_copy(h: *const ScxStream, indptr: *mut i32, indices: *mut i32, data: *mut f32) {
     let csr = &(*h).cur.as_ref().expect("scx_copy without a current chunk").data;
     let nnz = csr.indices.len();
     let indptr = std::slice::from_raw_parts_mut(indptr, csr.indptr.len());
     let base = csr.indptr[0];
     for (o, &p) in indptr.iter_mut().zip(&csr.indptr) {
-        *o = (p - base) as i64 + 1;
+        *o = (p - base) as i32 + 1;
     }
     let indices = std::slice::from_raw_parts_mut(indices, nnz);
     for (o, &i) in indices.iter_mut().zip(&csr.indices) {
-        *o = i as i64 + 1;
+        *o = i as i32 + 1;
     }
     // ponytail: always Float32, which is what OnlinePCA computes in; counts are
     // exact below 2^24. Add a dtype tag if f64 X ever needs to survive.
